@@ -1,0 +1,40 @@
+#!/bin/bash
+# batlimit — Acer 80% battery charge limiter control (acer-wmi-battery)
+# usage: batlimit [status|on|off]
+set -euo pipefail
+
+HM=/sys/bus/wmi/drivers/acer-wmi-battery/health_mode
+BOOTCONF=/etc/modprobe.d/acer-wmi-battery.conf
+
+status() {
+    if [ ! -f "$HM" ]; then
+        echo "limiter : driver not loaded (run: sudo modprobe acer-wmi-battery)"
+    elif [ "$(cat "$HM")" = "1" ]; then
+        echo "limiter : ON (charging stops at 80%)"
+    else
+        echo "limiter : OFF (charges to 100%)"
+    fi
+    cap=$(cat /sys/class/power_supply/BAT1/capacity)
+    st=$(cat /sys/class/power_supply/BAT1/status)
+    if [ "$st" = "Not charging" ] && [ "$cap" -ge 78 ] && [ -f "$HM" ] && [ "$(cat "$HM")" = "1" ]; then
+        st="Held at 80% by limiter"
+    fi
+    echo "battery : ${cap}% — ${st}"
+}
+
+setmode() {
+    [ -f "$HM" ] || { echo "Driver not loaded. Run: sudo modprobe acer-wmi-battery"; exit 1; }
+    echo "$1" | sudo tee "$HM" >/dev/null
+    # keep the boot-time default in sync, if the persistent config exists
+    if [ -f "$BOOTCONF" ]; then
+        sudo sed -i "s/enable_health_mode=[0-9-]*/enable_health_mode=$1/" "$BOOTCONF"
+    fi
+    status
+}
+
+case "${1:-status}" in
+    status) status ;;
+    on)     setmode 1 ;;
+    off)    setmode 0 ;;
+    *)      echo "usage: batlimit [status|on|off]"; exit 1 ;;
+esac

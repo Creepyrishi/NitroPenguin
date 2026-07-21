@@ -1,0 +1,19 @@
+# kernel build artifacts
+*.ko
+*.o
+*.mod
+*.mod.c
+*.symvers
+*.order
+.*.cmd
+.module-common.o
+
+# local Claude Code settings
+.claude/settings.local.json
+driver/rgb-upstream/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+driver/fan-upstream/
