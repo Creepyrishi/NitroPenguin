@@ -159,10 +159,19 @@ class Battery:
         st.status = _read(BAT / "status") or "Unknown"
         st.ac_online = (_read(AC / "online") or "0") == "1"
         if st.available:
-            st.limiter = (_read(HEALTH_MODE) or "0") == "1"
-            raw_temp = _read(BAT_TEMP)
-            if raw_temp is not None:
-                st.temp_c = int(raw_temp) / 1000.0
+            raw = _read(HEALTH_MODE) or "0"
+            # The driver reports -1 when the firmware says health mode is
+            # unavailable, which happens when another Acer driver (e.g.
+            # Linuwu-Sense) has taken over the same WMI interface. Writing
+            # in that state is ignored by the driver and blocks forever, so
+            # treat it as unavailable instead of offering the toggle.
+            if raw.startswith("-"):
+                st.available = False
+            else:
+                st.limiter = raw == "1"
+                raw_temp = _read(BAT_TEMP)
+                if raw_temp is not None:
+                    st.temp_c = int(raw_temp) / 1000.0
         st.held_at_limit = (
             st.limiter and st.ac_online
             and st.status == "Not charging" and st.percent >= 78
@@ -180,9 +189,14 @@ class Battery:
 
     @staticmethod
     def limiter_command(on: bool) -> list[str]:
-        """Privileged fallback command (run via pkexec by the GUI)."""
+        """Privileged fallback command (run via pkexec by the GUI).
+
+        Wrapped in `timeout` so a sysfs write that the driver refuses to
+        consume can never leave the GUI waiting forever.
+        """
         val = "1" if on else "0"
-        return ["pkexec", "sh", "-c", f"echo {val} > {HEALTH_MODE}"]
+        return ["pkexec", "timeout", "5", "sh", "-c",
+                f"echo {val} > {HEALTH_MODE}"]
 
 
 # FANS

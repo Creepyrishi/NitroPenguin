@@ -81,10 +81,13 @@ class BatteryPage(QWidget):
         root.addWidget(limiter_card)
 
         # DRIVER-MISSING NOTICE
-        self.notice = Card("Driver not loaded")
+        self.notice = Card("Charge limiter unavailable")
         notice_label = QLabel(
-            "The battery driver (acer-wmi-battery) is not loaded, so the "
-            "charge limiter is unavailable. Enable it from the Setup page."
+            "The battery driver is not loaded, or the firmware reports the "
+            "charge limit as unavailable. Enable the driver from the Setup "
+            "page. If it is already installed, another Acer driver such as "
+            "Linuwu-Sense may be loaded and holding the same firmware "
+            "interface; only one of them can control it."
         )
         notice_label.setProperty("class", "muted")
         notice_label.setWordWrap(True)
