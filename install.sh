@@ -48,6 +48,11 @@ if [ "${1:-}" = "--uninstall" ]; then
             && sudo rm -f /etc/udev/rules.d/99-nitropenguin-hotkey.rules \
             && sudo udevadm control --reload-rules 2>/dev/null || true
     fi
+    if [ -f /etc/udev/hwdb.d/61-nitropenguin-kbd.hwdb ]; then
+        ask "Remove the backlight-key remap? (restores the stock, buggy mapping; needs sudo)" \
+            && sudo rm -f /etc/udev/hwdb.d/61-nitropenguin-kbd.hwdb \
+            && sudo systemd-hwdb update 2>/dev/null || true
+    fi
     if [ -d "$INSTALL_DIR" ]; then
         ask "Delete the cloned project at $INSTALL_DIR?" && rm -rf "$INSTALL_DIR"
     fi
@@ -179,7 +184,18 @@ EOF
     say "Nitro key set up. If it doesn't work yet, reboot once."
 fi
 
-# ---- 8. done ----
+# ---- 8. keyboard-backlight key fix (AN515-45, needs sudo once) ----
+HWDB_FILE=/etc/udev/hwdb.d/61-nitropenguin-kbd.hwdb
+if [ "$MODEL" = "Nitro AN515-45" ] && [ ! -f "$HWDB_FILE" ]; then
+    if ask "Fix the Fn+F9/F10 backlight keys? (they wrongly change SCREEN brightness; needs sudo)"; then
+        sudo cp "$INSTALL_DIR/packaging/61-nitropenguin-kbd.hwdb" "$HWDB_FILE"
+        sudo systemd-hwdb update
+        sudo udevadm trigger --sysname-match="event*"
+        say "Backlight keys remapped."
+    fi
+fi
+
+# ---- 9. done ----
 echo
 say "${C_GRN}Installed.${C_0}"
 echo "   Launch it:   ${C_BOLD}nitropenguin${C_0}   (or find NitroPenguin in your apps)"

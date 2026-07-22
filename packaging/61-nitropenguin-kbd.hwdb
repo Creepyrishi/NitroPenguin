@@ -1,0 +1,13 @@
+# Acer Nitro AN515-45: keyboard-backlight Fn keys leak scancodes that
+# the generic Acer table (60-keyboard.hwdb) mismaps. Worst offender:
+# 0xef is mapped there to "brightnessdown" (a 2008 Aspire meaning), so
+# pressing Fn+F10 (kbd backlight up) slams the SCREEN brightness down.
+# The EC dims/brightens the keyboard itself; these mappings just give
+# the OS semantically correct events.
+#
+# Captured on hardware with evdev MSC_SCAN:
+#   Fn+F9  -> 0xf0 (was unmapped, kernel logged "Unknown key e070")
+#   Fn+F10 -> 0xef (was brightnessdown)
+evdev:atkbd:dmi:bvn*:bvr*:bd*:svnAcer*:pnNitroAN515-45:*
+ KEYBOARD_KEY_f0=kbdillumdown
+ KEYBOARD_KEY_ef=kbdillumup

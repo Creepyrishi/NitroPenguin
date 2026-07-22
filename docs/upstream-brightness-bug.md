@@ -42,26 +42,28 @@ Where to file: https://github.com/systemd/systemd (PR against
 
 Summary: the generic Acer block (`evdev:atkbd:dmi:...svnAcer*:pn*`)
 predates the Nitro line. On the Nitro AN515-45, the keyboard-backlight
-keys leak scancodes with wrong or missing mappings:
+keys leak scancodes with wrong or missing mappings (captured on
+hardware via evdev MSC_SCAN):
 
 - Fn+F9 (backlight dim): scancode index `f0` (raw `e070`) is unmapped;
   the kernel logs `atkbd serio0: Unknown key pressed ... e070`.
-- Fn+F10 (backlight brighten): its leaked scancode is mapped by the
-  legacy block to a meaning from older Aspire models; on GNOME this
-  reaches `screen-brightness-cycle`, which slams the SCREEN brightness
-  to minimum while the user is only adjusting the keyboard backlight
-  (and then triggers bug 1 above).
+- Fn+F10 (backlight brighten): scancode index `ef`, which the generic
+  block maps to `brightnessdown` ("Fn+Left" on old Aspires). Every
+  press of the keyboard-backlight-up key therefore sends SCREEN
+  brightness-down; the release appears to be leaked inconsistently, so
+  the key can remain logically held, auto-repeat the screen to minimum,
+  and block the real brightness-down key (same keycode, different
+  device) until brightness-up is pressed (interacting with bug 1).
 - The same chords occasionally leak bare Ctrl/Shift make codes without
   break codes, leaving stuck modifiers until the user taps those keys.
 
-Proposed stanza (scancode for F10 to be confirmed with
-`evtest`/MSC_SCAN on the device):
+Proposed stanza (verified working on the device):
 
 ```
 # Acer Nitro AN515-45 keyboard backlight keys
 evdev:atkbd:dmi:bvn*:bvr*:bd*:svnAcer*:pnNitroAN515-45:*
  KEYBOARD_KEY_f0=kbdillumdown                           # Fn+F9
- KEYBOARD_KEY_<f10-index>=kbdillumup                    # Fn+F10
+ KEYBOARD_KEY_ef=kbdillumup                             # Fn+F10
 ```
 
 The EC performs the actual backlight change itself; these mappings only
