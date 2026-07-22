@@ -12,12 +12,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
-    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -152,21 +150,9 @@ class MainWindow(QMainWindow):
             self._system_scheme_changed
         )
 
-        # SYSTEM TRAY: LOGO IN THE STATUS BAR WHILE RUNNING
-        icon = QIcon(str(hw.PROJECT_DIR / "assets" / "nitropenguin.svg"))
-        self.setWindowIcon(icon)
-        self.tray = QSystemTrayIcon(icon, self)
-        self.tray.setToolTip("NitroPenguin")
-        self._tray_menu = QMenu()
-        open_action = self._tray_menu.addAction("Open NitroPenguin")
-        open_action.triggered.connect(self._show_from_tray)
-        self._tray_menu.addSeparator()
-        quit_action = self._tray_menu.addAction("Quit")
-        quit_action.triggered.connect(QApplication.instance().quit)
-        self.tray.setContextMenu(self._tray_menu)
-        self.tray.activated.connect(self._tray_activated)
-        self.tray.show()
-        self._tray_notice_shown = False
+        self.setWindowIcon(
+            QIcon(str(hw.PROJECT_DIR / "assets" / "nitropenguin.svg"))
+        )
 
         self._navigate(0)
         self._refresh_banner()
@@ -234,37 +220,6 @@ class MainWindow(QMainWindow):
     def _show_settings(self) -> None:
         SettingsDialog(self).exec()
 
-    def _tray_activated(self, reason) -> None:
-        if reason == QSystemTrayIcon.Trigger:
-            if self.isVisible():
-                self.hide()
-            else:
-                self._show_from_tray()
-
-    def _show_from_tray(self) -> None:
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
-
-    def closeEvent(self, event) -> None:
-        """Close hides to the tray so the fan watchdog and keyboard Temp
-        mode keep running; Quit lives in the tray menu."""
-        if self.tray.isVisible():
-            event.ignore()
-            self.hide()
-            if not self._tray_notice_shown:
-                self._tray_notice_shown = True
-                self.tray.showMessage(
-                    "NitroPenguin",
-                    "Still running in the status bar. Temp keyboard mode "
-                    "and the fan watchdog stay on. Right-click the icon "
-                    "to quit.",
-                    self.windowIcon(),
-                    4000,
-                )
-        else:
-            event.accept()
-
     def refresh_after_setup_change(self) -> None:
         """Called by the settings dialog after an install/remove."""
         self._refresh_banner()
@@ -288,7 +243,6 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("NitroPenguin")
     app.setDesktopFileName("nitropenguin")
-    app.setQuitOnLastWindowClosed(False)   # closing hides to the tray
     app.setStyleSheet(theme.build_qss())
     window = MainWindow()
     window.show()

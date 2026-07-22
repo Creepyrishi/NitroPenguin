@@ -1,0 +1,12 @@
+[Unit]
+Description=NitroPenguin background daemon (fan watchdog, keyboard Temp mode, Nitro key)
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/nitropenguin/.venv/bin/python -m nitrotool.daemon
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -185,8 +185,8 @@ class FansPage(QWidget):
 
         self.graph.add_sample(cpu, igpu, self._dgpu_temp)
 
-        # THERMAL WATCHDOG
-        if st.available and st.mode == "custom":
+        # THERMAL WATCHDOG (fallback: the daemon owns this when running)
+        if st.available and st.mode == "custom" and not hw.daemon_running():
             hot = max(
                 t for t in (cpu, igpu, self._dgpu_temp, 0.0) if t is not None
             )

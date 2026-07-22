@@ -105,8 +105,9 @@ class BatteryPage(QWidget):
         self.percent_label.setText(f"{st.percent}%")
         self.bar.set_state(st.percent, st.limiter)
 
-        if st.held_at_limit and not self._was_held:
-            # entered the held state right now -> desktop notification
+        # Notify on the rising edge of the 80% hold. The daemon owns this
+        # when running; the GUI only notifies as a fallback.
+        if st.held_at_limit and not self._was_held and not hw.daemon_running():
             QProcess.startDetached("notify-send", [
                 "-i", "battery-good-charging",
                 "NitroPenguin",

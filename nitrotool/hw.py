@@ -26,6 +26,8 @@ KBD_STATIC = Path("/dev/acer-gkbbl-static-0")
 CONFIG_DIR = Path.home() / ".config" / "nitrotool"
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 DRIVER_DIR = PROJECT_DIR / "driver"
+GUI_LAUNCHER = PROJECT_DIR / ".venv" / "bin" / "nitropenguin"
+PIDFILE = CONFIG_DIR / "daemon.pid"
 # Same directory/format the community facer_rgb.py tool uses, so profiles
 # saved in either tool show up in both.
 FACER_PROFILE_DIR = Path.home() / ".config" / "predator" / "saved profiles"
@@ -36,6 +38,19 @@ def _read(path: Path) -> str | None:
         return path.read_text().strip()
     except OSError:
         return None
+
+
+def daemon_running() -> bool:
+    """True if the background daemon is alive (checked via its pidfile).
+
+    The GUI uses this to avoid double-driving the hardware: when the
+    daemon owns the always-on loops, the GUI's own copies stay off.
+    """
+    try:
+        pid = int(PIDFILE.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    return Path(f"/proc/{pid}").exists()
 
 
 # INSTALL STATE (TEMPORARY VS PERMANENT MODE)

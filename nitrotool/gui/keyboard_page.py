@@ -235,12 +235,15 @@ class KeyboardPage(QWidget):
             w.setEnabled(directional)
         # profiles use the firmware format; Temp is app-driven
         self.save_button.setEnabled(not temp)
-        # temperature engine lifecycle
-        if temp and not self._temp_timer.isActive():
+        # Temperature engine lifecycle. When the daemon is running it owns
+        # this loop, so the GUI does not drive it too; the GUI only runs it
+        # as a fallback when the daemon is absent.
+        want = temp and not hw.daemon_running()
+        if want and not self._temp_timer.isActive():
             self._last_temp_color = None
             self._temp_timer.start()
             self._temp_tick()
-        elif not temp and self._temp_timer.isActive():
+        elif not want and self._temp_timer.isActive():
             self._temp_timer.stop()
             self._last_temp_color = None
 

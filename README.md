@@ -75,9 +75,17 @@ puts the fans back on Auto. Every boot starts on the firmware curve.
 ### ⚙️ One place to manage it
 
 Dark, light, or match-your-system theme. Install only the features you want
-and add the rest later. While the app runs, its icon sits in the status bar.
+and add the rest later.
 
 ![Settings](img/settings.png)
+
+### 🪶 Light on memory
+
+The window is a normal desktop app: open it when you need it, close it when
+you're done, and it fully exits. The always-on work (Temp keyboard mode, the
+fan watchdog, the 80% notification) runs in a small background daemon that
+uses about 17 MB and starts automatically at login. Press the **Nitro key**
+to open the window any time.
 
 ## 🛠️ How it works
 

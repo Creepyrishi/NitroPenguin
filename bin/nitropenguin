@@ -1,12 +1,9 @@
 #!/bin/bash
-# Launch NitroPenguin (uv-managed project).
+# Launch NitroPenguin directly from the project venv.
 # Self-locating: resolves the repo dir even when invoked through a
 # symlink in ~/.local/bin, so it works wherever the project is cloned.
+# We exec the venv entry point directly (no `uv run` wrapper) to avoid
+# keeping a ~32 MB uv process resident as the GUI's parent.
 SELF="$(readlink -f "$0")"
 PROJECT_DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
-cd "$PROJECT_DIR" || exit 1
-if command -v uv >/dev/null 2>&1; then
-    exec uv run --project "$PROJECT_DIR" nitropenguin "$@"
-fi
-# fallback: pre-synced virtualenv
 exec "$PROJECT_DIR/.venv/bin/nitropenguin" "$@"

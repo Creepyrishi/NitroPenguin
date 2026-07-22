@@ -38,8 +38,16 @@ ask() {
 if [ "${1:-}" = "--uninstall" ]; then
     say "Removing the NitroPenguin app (drivers are left untouched — remove"
     echo "   those first from the app's Settings if you want them gone)."
+    systemctl --user disable --now nitropenguin-daemon.service 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/nitropenguin-daemon.service"
+    systemctl --user daemon-reload 2>/dev/null || true
     rm -f "$BIN_DIR/nitropenguin" "$BIN_DIR/nitro-gui"
     rm -f "$APP_DIR/nitropenguin.desktop"
+    if [ -f /etc/udev/rules.d/99-nitropenguin-hotkey.rules ]; then
+        ask "Remove the Nitro-key udev rule? (needs sudo)" \
+            && sudo rm -f /etc/udev/rules.d/99-nitropenguin-hotkey.rules \
+            && sudo udevadm control --reload-rules 2>/dev/null || true
+    fi
     if [ -d "$INSTALL_DIR" ]; then
         ask "Delete the cloned project at $INSTALL_DIR?" && rm -rf "$INSTALL_DIR"
     fi
@@ -142,7 +150,36 @@ StartupWMClass=nitropenguin
 EOF
 update-desktop-database "$APP_DIR" >/dev/null 2>&1 || true
 
-# ---- 6. done ----
+# ---- 6. background daemon (autostart) ----
+say "Setting up the background daemon (~20 MB; runs the fan watchdog,"
+echo "   keyboard Temp mode and 80% notification without the window open)"
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+cp "$INSTALL_DIR/packaging/nitropenguin-daemon.service" "$UNIT_DIR/"
+if systemctl --user daemon-reload 2>/dev/null; then
+    systemctl --user enable --now nitropenguin-daemon.service 2>/dev/null \
+        && say "Daemon started and set to auto-start at login." \
+        || warn "Could not start the user service; check: systemctl --user status nitropenguin-daemon"
+else
+    warn "No systemd user session here; the daemon will start next login."
+fi
+
+# ---- 7. Nitro key opens the app (optional, needs sudo once) ----
+HOTKEY_RULE=/etc/udev/rules.d/99-nitropenguin-hotkey.rules
+if [ ! -f "$HOTKEY_RULE" ] && ask "Make the physical Nitro key open the app? (needs sudo once)"; then
+    # uaccess grants the logged-in user read access to ONLY this device
+    # (least privilege — not the whole 'input' group), so the daemon can
+    # watch it for the keypress.
+    sudo tee "$HOTKEY_RULE" >/dev/null <<'EOF'
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="Acer WMI hotkeys", TAG+="uaccess"
+EOF
+    sudo udevadm control --reload-rules
+    sudo udevadm trigger --subsystem-match=input
+    systemctl --user restart nitropenguin-daemon.service 2>/dev/null || true
+    say "Nitro key set up. If it doesn't work yet, reboot once."
+fi
+
+# ---- 8. done ----
 echo
 say "${C_GRN}Installed.${C_0}"
 echo "   Launch it:   ${C_BOLD}nitropenguin${C_0}   (or find NitroPenguin in your apps)"
