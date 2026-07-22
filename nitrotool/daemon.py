@@ -66,7 +66,8 @@ def _find_hotkey_event_device(name: str) -> str | None:
 class Daemon:
     def __init__(self) -> None:
         self._running = True
-        self._last_kbd_color: tuple[int, int, int] | None = None
+        # last applied (color, brightness) so redundant writes are skipped
+        self._last_kbd: tuple | None = None
         self._battery_held = False
         self._last_battery_poll = 0.0
         self._hotkey_fd: int | None = None
@@ -160,16 +161,21 @@ class Daemon:
         if state is None:
             state = hw.Keyboard.load_last()
         if state.mode != hw.TEMP_MODE:
-            self._last_kbd_color = None
+            self._last_kbd = None
+            return
+        # Brightness 0 means hands off: writing zones at 0 would keep
+        # forcing the backlight dark and fight the EC's Fn+F9/F10 keys.
+        if state.brightness == 0:
+            self._last_kbd = None
             return
         temp = hw.cpu_temp()
         if temp is None:
             return
         bucket = round(temp / 2) * 2
         color = hw.temp_to_color(bucket)
-        if color != self._last_kbd_color:
+        if (color, state.brightness) != self._last_kbd:
             if hw.Keyboard.set_all_zones(color, state.brightness):
-                self._last_kbd_color = color
+                self._last_kbd = (color, state.brightness)
 
     def _tick_fan_watchdog(self) -> None:
         if not hw.Fans.driver_loaded():

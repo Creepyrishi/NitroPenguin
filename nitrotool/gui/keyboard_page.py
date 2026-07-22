@@ -85,9 +85,9 @@ class KeyboardPage(QWidget):
         temp_label = QLabel(
             "All four zones follow the CPU temperature. Blue when cool "
             "(45 °C or less), through green and yellow, to red when hot "
-            "(80 °C or more). It checks once every 3 seconds while the "
-            "app is open. That is one file read per check, so it barely "
-            "touches the CPU."
+            "(80 °C or more). One sensor read every 3 seconds, so it "
+            "barely touches the CPU. Set brightness to 0 to pause it and "
+            "let the keyboard's own Fn keys control the backlight."
         )
         temp_label.setProperty("class", "muted")
         temp_label.setWordWrap(True)
@@ -342,11 +342,16 @@ class KeyboardPage(QWidget):
     def _temp_tick(self) -> None:
         if not hw.Keyboard.driver_loaded():
             return
+        # Brightness 0 means hands off: keep the engine from forcing the
+        # backlight dark and fighting the EC's Fn+F9/F10 keys.
+        if self.state.brightness == 0:
+            self._last_temp_color = None
+            return
         temp = hw.cpu_temp()
         if temp is None:
             return
         bucket = round(temp / 2) * 2   # 2 °C steps -> fewer writes
         color = hw.temp_to_color(bucket)
-        if color != self._last_temp_color:
+        if (color, self.state.brightness) != self._last_temp_color:
             if hw.Keyboard.set_all_zones(color, self.state.brightness):
-                self._last_temp_color = color
+                self._last_temp_color = (color, self.state.brightness)
