@@ -7,6 +7,8 @@ Nothing touches the system without an explicit action + system password.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -20,6 +22,8 @@ from PySide6.QtWidgets import (
 
 from .. import hw
 from .widgets import Card
+
+_log = logging.getLogger("setup")
 
 
 class ComponentRow(QWidget):
@@ -227,6 +231,7 @@ class SetupPage(QWidget):
             self._run(hw.uninstall_command(keys))
 
     def _run(self, cmd: list[str]) -> None:
+        _log.info("Driver action: %s", " ".join(cmd))
         self.log.show()
         self.log.appendPlainText(f"$ {' '.join(cmd[3:] if len(cmd) > 3 else cmd)}")
         self._process = QProcess(self)
@@ -243,9 +248,12 @@ class SetupPage(QWidget):
     def _done(self, code: int, _status) -> None:
         self._process = None
         if code == 0:
+            _log.info("Driver action finished ok")
             self.log.appendPlainText("Done.")
         elif code in (126, 127):
+            _log.warning("Driver action: authorization cancelled")
             self.log.appendPlainText("Authorization was cancelled.")
         else:
+            _log.warning("Driver action failed (exit code %d)", code)
             self.log.appendPlainText(f"Failed (exit code {code}).")
         self.refresh()

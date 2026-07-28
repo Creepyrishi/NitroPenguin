@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -13,6 +15,8 @@ from PySide6.QtWidgets import (
 
 from .. import hw
 from .widgets import BatteryBar, Card, ToggleSwitch
+
+_log = logging.getLogger("battery")
 
 
 class BatteryPage(QWidget):
@@ -147,6 +151,8 @@ class BatteryPage(QWidget):
             self.refresh()
             return
         # Needs privileges: ask via polkit (system password dialog).
+        _log.info("Limiter %s needs authorization, asking via pkexec",
+                  "on" if on else "off")
         self.limiter_note.setText("Waiting for authorization…")
         self.toggle.setEnabled(False)
         cmd = hw.Battery.limiter_command(on)
@@ -159,8 +165,11 @@ class BatteryPage(QWidget):
     def _pkexec_done(self, code: int, wanted_on: bool) -> None:
         self._pkexec = None
         if code == 0:
+            _log.info("Limiter %s via pkexec", "on" if wanted_on else "off")
             self.limiter_note.setText("")
         else:
+            _log.warning("Limiter pkexec exited %d; limiter unchanged",
+                         code)
             self.limiter_note.setText(
                 "Authorization was cancelled. The limiter was not changed."
             )

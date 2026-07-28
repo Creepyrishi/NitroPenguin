@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import colorsys
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+_log = logging.getLogger("hw")
 
 HEALTH_MODE = Path("/sys/bus/wmi/drivers/acer-wmi-battery/health_mode")
 BAT_TEMP = Path("/sys/bus/wmi/drivers/acer-wmi-battery/temperature")
@@ -147,6 +150,8 @@ class BatteryState:
 
 
 class Battery:
+    _warned_unavailable = False
+
     @staticmethod
     def driver_loaded() -> bool:
         return HEALTH_MODE.exists()
@@ -167,7 +172,15 @@ class Battery:
             # treat it as unavailable instead of offering the toggle.
             if raw.startswith("-"):
                 st.available = False
+                if not Battery._warned_unavailable:
+                    Battery._warned_unavailable = True
+                    _log.warning(
+                        "health_mode reads %s: firmware reports the limiter "
+                        "unavailable (another Acer driver may hold the WMI "
+                        "interface)", raw,
+                    )
             else:
+                Battery._warned_unavailable = False
                 st.limiter = raw == "1"
                 raw_temp = _read(BAT_TEMP)
                 if raw_temp is not None:
@@ -183,8 +196,12 @@ class Battery:
         """Direct sysfs write; works only with sufficient permissions."""
         try:
             HEALTH_MODE.write_text("1" if on else "0")
+            _log.info("Battery limiter %s (direct write)",
+                      "on" if on else "off")
             return True
-        except OSError:
+        except OSError as err:
+            _log.debug("Limiter direct write refused (%s); pkexec needed",
+                       err)
             return False
 
     @staticmethod
@@ -245,8 +262,10 @@ class Fans:
     def set_direct(cpu: int, gpu: int) -> bool:
         try:
             FAN_SPEED.write_text(f"{cpu},{gpu}")
+            _log.info("Fans set cpu=%d gpu=%d (0 = auto)", cpu, gpu)
             return True
-        except OSError:
+        except OSError as err:
+            _log.debug("Fan direct write refused (%s); pkexec needed", err)
             return False
 
     @staticmethod
@@ -337,7 +356,8 @@ class Keyboard:
             dyn[9] = 1
             KBD_DYNAMIC.write_bytes(bytes(dyn))
             return True
-        except OSError:
+        except OSError as err:
+            _log.warning("Keyboard zone write failed: %s", err)
             return False
 
     # Payload layout identical to facer_rgb.py / facer.c (community-tested).
@@ -364,8 +384,14 @@ class Keyboard:
                 dyn[5], dyn[6], dyn[7] = state.color
                 dyn[9] = 1
                 KBD_DYNAMIC.write_bytes(bytes(dyn))
+            _log.info(
+                "Keyboard effect applied: %s brightness=%d speed=%d",
+                MODES.get(state.mode, state.mode), state.brightness,
+                state.speed,
+            )
             return True
-        except OSError:
+        except OSError as err:
+            _log.warning("Keyboard effect write failed: %s", err)
             return False
 
     # PERSISTENCE
@@ -411,6 +437,7 @@ class Keyboard:
         (FACER_PROFILE_DIR / f"{name}.json").write_text(
             json.dumps(data, indent=4)
         )
+        _log.info("Profile saved: %s", name)
 
     @staticmethod
     def load_profile(name: str) -> KeyboardState | None:
@@ -418,8 +445,10 @@ class Keyboard:
             data = json.loads(
                 (FACER_PROFILE_DIR / f"{name}.json").read_text()
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError) as err:
+            _log.warning("Profile %s failed to load: %s", name, err)
             return None
+        _log.info("Profile loaded: %s", name)
         st = KeyboardState()
         st.mode = int(data.get("mode", 3))
         st.speed = int(data.get("speed", 4))

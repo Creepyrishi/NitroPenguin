@@ -10,6 +10,8 @@ Guardrails (deliberately stricter than NitroSense):
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtWidgets import (
     QGridLayout,
@@ -23,6 +25,8 @@ from PySide6.QtWidgets import (
 
 from .. import hw
 from .widgets import Card, TempGraph
+
+_log = logging.getLogger("fans")
 
 
 class FansPage(QWidget):
@@ -191,6 +195,8 @@ class FansPage(QWidget):
                 t for t in (cpu, igpu, self._dgpu_temp, 0.0) if t is not None
             )
             if hot > hw.WATCHDOG_TEMP:
+                _log.warning("Watchdog: %.0f °C exceeded %.0f °C, fans "
+                             "back to Auto", hot, hw.WATCHDOG_TEMP)
                 self._set_fans(0, 0)
                 self.status_note.setText(
                     f"Thermal watchdog: {hot:.0f} °C exceeded "
@@ -224,6 +230,7 @@ class FansPage(QWidget):
         self._nvidia = None
 
     def _apply_mode(self, mode: str) -> None:
+        _log.info("Fan mode -> %s", mode)
         if mode == "auto":
             self._set_fans(0, 0)
         elif mode == "max":
@@ -251,8 +258,10 @@ class FansPage(QWidget):
     def _pkexec_done(self, code: int, _status) -> None:
         self._pkexec = None
         if code == 0:
+            _log.info("Fans set via pkexec")
             self.status_note.setText("")
         else:
+            _log.warning("Fan pkexec exited %d; fans unchanged", code)
             self.status_note.setText(
                 "Authorization was cancelled. Fan settings were not changed."
             )

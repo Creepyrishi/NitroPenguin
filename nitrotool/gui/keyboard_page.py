@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -18,6 +20,8 @@ from PySide6.QtWidgets import (
 
 from .. import hw
 from .widgets import Card, ColorSwatch, ToggleSwitch, ZoneStrip
+
+_log = logging.getLogger("keyboard")
 
 
 class KeyboardPage(QWidget):
@@ -355,3 +359,6 @@ class KeyboardPage(QWidget):
         if (color, self.state.brightness) != self._last_temp_color:
             if hw.Keyboard.set_all_zones(color, self.state.brightness):
                 self._last_temp_color = (color, self.state.brightness)
+                _log.info("Temp mode: %.0f °C -> #%02x%02x%02x "
+                          "brightness=%d", temp, *color,
+                          self.state.brightness)
