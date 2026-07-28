@@ -3,9 +3,14 @@ about & credits."""
 
 from __future__ import annotations
 
+import logging
+import time
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QProcess, Qt
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -14,8 +19,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import hw
+from .. import applog, hw
 from . import theme
+
+_log = logging.getLogger("settings")
 
 
 def _section(layout: QVBoxLayout, title: str) -> None:
@@ -97,6 +104,24 @@ class SettingsDialog(QDialog):
         self.wipe_button.clicked.connect(self._uninstall_all)
         wipe_row.addWidget(self.wipe_button)
         root.addLayout(wipe_row)
+
+        # TROUBLESHOOTING
+        _section(root, "Troubleshooting")
+        export_row = QHBoxLayout()
+        export_hint = QLabel(
+            "The app and its background daemon keep a small activity log: "
+            "what was applied, what failed, and why. Export it and attach "
+            "the file when reporting a bug on GitHub."
+        )
+        export_hint.setProperty("class", "muted")
+        export_hint.setWordWrap(True)
+        export_row.addWidget(export_hint, 1)
+        export_button = QPushButton("Export log…")
+        export_button.setProperty("class", "action")
+        export_button.setCursor(Qt.PointingHandCursor)
+        export_button.clicked.connect(self._export_log)
+        export_row.addWidget(export_button)
+        root.addLayout(export_row)
 
         _section(root, "About")
         link_style = f"style='color:{theme.ACCENT}'"
@@ -217,9 +242,27 @@ class SettingsDialog(QDialog):
 
             self.comp_layout.addWidget(row)
 
+    def _export_log(self) -> None:
+        stamp = time.strftime("%Y%m%d-%H%M")
+        default = str(Path.home() / f"nitropenguin-log-{stamp}.txt")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export debug log", default, "Text files (*.txt)"
+        )
+        if not path:
+            return
+        try:
+            applog.export_report(Path(path))
+        except OSError as err:
+            _log.warning("Log export failed: %s", err)
+            self.status_note.setText(f"Export failed: {err}")
+            return
+        _log.info("Log exported to %s", path)
+        self.status_note.setText(f"Log saved to {path}")
+
     def _run(self, cmd: list[str]) -> None:
         if self._proc is not None:
             return
+        _log.info("Driver action: %s", " ".join(cmd))
         self.status_note.setText("Working. You may be asked for a password…")
         self._proc = QProcess(self)
         self._proc.finished.connect(self._done)
@@ -229,10 +272,13 @@ class SettingsDialog(QDialog):
     def _done(self, code: int, _status) -> None:
         self._proc = None
         if code == 0:
+            _log.info("Driver action finished ok")
             self.status_note.setText("Done.")
         elif code in (126, 127):
+            _log.warning("Driver action: authorization cancelled")
             self.status_note.setText("Authorization was cancelled.")
         else:
+            _log.warning("Driver action failed (exit code %d)", code)
             self.status_note.setText(f"Failed (exit code {code}).")
         self._rebuild_components()
         self.main.refresh_after_setup_change()

@@ -15,6 +15,7 @@ access; imports no GUI code.
 
 from __future__ import annotations
 
+import logging
 import os
 import select
 import signal
@@ -24,7 +25,9 @@ import sys
 import time
 from pathlib import Path
 
-from nitrotool import hw
+from nitrotool import applog, hw
+
+_log = logging.getLogger("daemon")
 
 POLL_SECONDS = 3.0
 BATTERY_POLL_SECONDS = 5.0
@@ -80,14 +83,21 @@ class Daemon:
         hw.PIDFILE.write_text(str(os.getpid()))
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
+        _log.info(
+            "Drivers: keyboard=%s fans=%s battery=%s",
+            hw.Keyboard.driver_loaded(), hw.Fans.driver_loaded(),
+            hw.Battery.driver_loaded(),
+        )
         self._open_hotkey()
         self._reapply_keyboard()
         try:
             self._loop()
         finally:
             self._cleanup()
+            _log.info("Daemon stopped")
 
-    def _stop(self, *_a) -> None:
+    def _stop(self, signum, _frame) -> None:
+        _log.info("Received signal %d, shutting down", signum)
         self._running = False
 
     def _cleanup(self) -> None:
@@ -107,13 +117,17 @@ class Daemon:
     def _open_hotkey(self) -> None:
         dev = _find_hotkey_event_device(HOTKEY_DEVICE_NAME)
         if not dev:
+            _log.info("Hotkey device '%s' not present", HOTKEY_DEVICE_NAME)
             return
         try:
             self._hotkey_fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
-        except OSError:
+            _log.info("Watching Nitro key on %s", dev)
+        except OSError as err:
             # No read permission (user not in the 'input' group): the
             # GNOME shortcut path handles the key instead.
             self._hotkey_fd = None
+            _log.info("Cannot watch %s (%s); GNOME shortcut handles the "
+                      "Nitro key instead", dev, err)
 
     def _read_hotkey(self) -> None:
         if self._hotkey_fd is None:
@@ -122,7 +136,8 @@ class Daemon:
             data = os.read(self._hotkey_fd, _EVENT_SIZE * 64)
         except (BlockingIOError, InterruptedError):
             return
-        except OSError:
+        except OSError as err:
+            _log.warning("Hotkey device lost: %s", err)
             self._hotkey_fd = None
             return
         for i in range(0, len(data) - _EVENT_SIZE + 1, _EVENT_SIZE):
@@ -138,11 +153,16 @@ class Daemon:
             return  # already open
         launcher = hw.GUI_LAUNCHER
         if not launcher.exists():
+            _log.warning("Nitro key pressed but launcher missing: %s",
+                         launcher)
             return
         try:
             self._gui = subprocess.Popen([str(launcher)])
-        except OSError:
-            pass
+            _log.info("Nitro key pressed: GUI opened (pid %d)",
+                      self._gui.pid)
+        except OSError as err:
+            _log.warning("Nitro key pressed but GUI failed to open: %s",
+                         err)
 
     # ----- hardware loops -----
 
@@ -176,6 +196,8 @@ class Daemon:
         if (color, state.brightness) != self._last_kbd:
             if hw.Keyboard.set_all_zones(color, state.brightness):
                 self._last_kbd = (color, state.brightness)
+                _log.info("Temp mode: %.0f °C -> #%02x%02x%02x "
+                          "brightness=%d", temp, *color, state.brightness)
 
     def _tick_fan_watchdog(self) -> None:
         if not hw.Fans.driver_loaded():
@@ -188,6 +210,8 @@ class Daemon:
             temps.append(self._dgpu_temp())
         hot = max((t for t in temps if t is not None), default=0.0)
         if hot > hw.WATCHDOG_TEMP:
+            _log.warning("Watchdog: %.0f °C exceeded %.0f °C, fans back "
+                         "to Auto", hot, hw.WATCHDOG_TEMP)
             hw.Fans.set_direct(0, 0)
             _notify(
                 "NitroPenguin",
@@ -210,6 +234,7 @@ class Daemon:
     def _tick_battery(self) -> None:
         state = hw.Battery.read()
         if state.held_at_limit and not self._battery_held:
+            _log.info("Battery held at 80%% by the limiter")
             _notify(
                 "NitroPenguin",
                 "Charging stopped at 80%. The limiter is keeping your "
@@ -240,6 +265,7 @@ class Daemon:
 
 
 def main() -> int:
+    applog.setup("daemon")
     Daemon().start()
     return 0
 

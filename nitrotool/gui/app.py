@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from PySide6.QtCore import Qt, QTimer
@@ -20,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import hw
+from .. import applog, hw
 from . import theme
 from .battery_page import BatteryPage
 from .fans_page import FansPage
@@ -240,10 +241,16 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
+    applog.setup("gui")
+    logging.getLogger("app").info(
+        "GUI opened (daemon running: %s)", hw.daemon_running()
+    )
     app = QApplication(sys.argv)
     app.setApplicationName("NitroPenguin")
     app.setDesktopFileName("nitropenguin")
     app.setStyleSheet(theme.build_qss())
     window = MainWindow()
     window.show()
-    return app.exec()
+    code = app.exec()
+    logging.getLogger("app").info("GUI closed")
+    return code
