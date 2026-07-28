@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How NitroPenguin works, from click to hardware</title>
+<style>
+  :root {
+    --bg: #16181d; --card: #1e2128; --ink: #e8e6e3; --muted: #a0a4ad;
+    --accent: #e2382c; --line: #2c3038; --code-bg: #14161a;
+    --chip: #262a33; --good: #4caf7d; --warn: #e0b341;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f6f4; --card: #ffffff; --ink: #23252a; --muted: #5d626c;
+      --accent: #c22d23; --line: #e2e2de; --code-bg: #f0f0ec;
+      --chip: #ecece8; --good: #1e7a4d; --warn: #8a6d10;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 30px; line-height: 1.25; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 34px; }
+  h2 {
+    font-size: 22px; margin: 54px 0 10px; padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+  h2 .num { color: var(--accent); margin-right: 8px; }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 10px 0; }
+  a { color: var(--accent); }
+  code {
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 5px; font-size: 14px;
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+    font-size: 13.5px; line-height: 1.55;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  .cm { color: var(--muted); }         /* comment */
+  .hl { color: var(--accent); font-weight: 600; }  /* highlight */
+  .file {
+    display: inline-block; background: var(--chip); border-radius: 5px;
+    padding: 1px 8px; font-size: 12.5px; color: var(--muted);
+    font-family: monospace; margin-bottom: -4px;
+  }
+  table {
+    border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14.5px;
+  }
+  th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+  th { background: var(--chip); }
+  td code { white-space: nowrap; }
+  .box {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px 18px; margin: 16px 0;
+  }
+  .box.story { border-left: 3px solid var(--accent); }
+  .box.try  { border-left: 3px solid var(--good); }
+  .box b.tag { color: var(--accent); }
+  .stack { margin: 20px 0; }
+  .layer {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 16px; margin: 0 auto; max-width: 640px;
+  }
+  .layer b { display: block; }
+  .layer span { color: var(--muted); font-size: 13.5px; }
+  .down { text-align: center; color: var(--accent); font-size: 18px;
+          line-height: 1.4; }
+  .toc { columns: 2; gap: 30px; font-size: 15px; }
+  .toc a { text-decoration: none; }
+  .toc li { margin: 3px 0; }
+  @media (max-width: 640px) { .toc { columns: 1; } }
+  .bits {
+    font-family: monospace; font-size: 15px; letter-spacing: 1px;
+    background: var(--code-bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 12px; display: inline-block;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>How NitroPenguin works</h1>
+<p class="sub">A guided tour of your own project: what every layer does,
+what the C code means, and what all those hex numbers are actually saying
+to your laptop.</p>
+
+<div class="box">
+<b>Read this first.</b> Nothing here is magic. The whole project is one
+idea repeated at every layer: <i>write a few carefully chosen bytes into
+the right mailbox, and the machine does something</i>. The GUI turns your
+click into bytes, Python passes them to the kernel, the kernel passes
+them to the firmware, and the firmware moves electrons. This page walks
+that path from top to bottom.
+</div>
+
+<ul class="toc">
+  <li><a href="#map">1. The map: six layers</a></li>
+  <li><a href="#hex">2. Bits, bytes and hex (the crash course)</a></li>
+  <li><a href="#bitops">3. The three bit tricks the code uses</a></li>
+  <li><a href="#firmware">4. Firmware, the EC, and WMI</a></li>
+  <li><a href="#kernel">5. What a kernel module is</a></li>
+  <li><a href="#fan">6. Reading the fan driver, line by line</a></li>
+  <li><a href="#rgb">7. The RGB driver and its payloads</a></li>
+  <li><a href="#battery">8. The battery driver</a></li>
+  <li><a href="#files">9. "Everything is a file"</a></li>
+  <li><a href="#python">10. The Python side</a></li>
+  <li><a href="#keys">11. The keyboard-key saga (input events)</a></li>
+  <li><a href="#glue">12. The glue: installer, DKMS, systemd, polkit</a></li>
+  <li><a href="#logs">13. The activity log</a></li>
+  <li><a href="#try">14. Poke it yourself (safe experiments)</a></li>
+  <li><a href="#glossary">15. Glossary</a></li>
+</ul>
+
+<!-- ================================================== -->
+<h2 id="map"><span class="num">1</span>The map: six layers</h2>
+
+<p>Follow one click: you toggle "Limit charging to 80%" in the app.</p>
+
+<div class="stack">
+  <div class="layer"><b>1. GUI or daemon (Python)</b>
+    <span>battery_page.py sees the toggle and asks hw.py to act</span></div>
+  <div class="down">&darr; <i style="color:var(--muted);font-size:13px">calls a function</i></div>
+  <div class="layer"><b>2. hw.py (Python)</b>
+    <span>writes the text "1" into a special file:
+    /sys/bus/wmi/drivers/acer-wmi-battery/health_mode</span></div>
+  <div class="down">&darr; <i style="color:var(--muted);font-size:13px">file write crosses into the kernel</i></div>
+  <div class="layer"><b>3. Kernel module (C)</b>
+    <span>acer-wmi-battery.c catches the write, builds an 8-byte message</span></div>
+  <div class="down">&darr; <i style="color:var(--muted);font-size:13px">WMI call</i></div>
+  <div class="layer"><b>4. ACPI / WMI (firmware interface)</b>
+    <span>the message is delivered to method 21 of mailbox
+    79772EC5-04B1-4BFD-843C-61E7F77B6CC9</span></div>
+  <div class="down">&darr; <i style="color:var(--muted);font-size:13px">firmware code runs</i></div>
+  <div class="layer"><b>5. Embedded Controller (EC)</b>
+    <span>a tiny always-on chip on the motherboard flips its
+    "stop charging at 80%" flag</span></div>
+  <div class="down">&darr;</div>
+  <div class="layer"><b>6. Hardware</b>
+    <span>the charging circuit cuts current at 80%. Battery says
+    "Not charging".</span></div>
+</div>
+
+<p>Every feature in the project is this same ladder with different bytes:
+fans, RGB, battery. The only things that change are <i>which file</i> you
+write to, <i>which mailbox</i> the kernel forwards it to, and <i>what the
+bytes mean</i>.</p>
+
+<!-- ================================================== -->
+<h2 id="hex"><span class="num">2</span>Bits, bytes and hex (the crash course)</h2>
+
+<p>Computers store everything as <b>bits</b>: switches that are 0 or 1.
+Eight bits make a <b>byte</b>, which can hold a number from 0 to 255.
+That's it. Colors, fan speeds, key presses: all just bytes.</p>
+
+<h3>Why hex exists</h3>
+<p>Writing bytes in binary is unreadable: <code>0100 0001</code>. Writing
+them in decimal hides the structure: <code>65</code>. <b>Hexadecimal</b>
+(hex) is base 16, and it has one killer property: <b>one hex digit is
+exactly 4 bits, so two hex digits are exactly one byte</b>. When you see
+hex, you are seeing the raw bytes with no distortion.</p>
+
+<p>Hex digits go <code>0 1 2 3 4 5 6 7 8 9 A B C D E F</code>, where
+A=10, B=11, C=12, D=13, E=14, F=15. In code, hex numbers get the prefix
+<code>0x</code> so you know what base you're reading.</p>
+
+<table>
+<tr><th>Hex</th><th>Binary</th><th>Decimal</th><th>Where you've seen it</th></tr>
+<tr><td><code>0x0F</code></td><td>0000 1111</td><td>15</td><td>the "all four zones on" mask in the RGB driver</td></tr>
+<tr><td><code>0x41</code></td><td>0100 0001</td><td>65</td><td>top byte of the fan "auto" command</td></tr>
+<tr><td><code>0xC3</code></td><td>1100 0011</td><td>195</td><td>top byte of the fan "custom" command</td></tr>
+<tr><td><code>0xFF</code></td><td>1111 1111</td><td>255</td><td>a fully-on byte (max red, max green...)</td></tr>
+<tr><td><code>0xFF00</code></td><td>1111 1111 0000 0000</td><td>65280</td><td>the mask in <code>fan_val_calc()</code></td></tr>
+</table>
+
+<p>Reading a hex number: each digit is worth 16 times the one to its
+right. <code>0x3C</code> = 3&times;16 + 12 = 60. Remember that one, it
+comes back in the fan math.</p>
+
+<div class="box">
+<b>One trap:</b> in C, a number starting with just <code>0</code> (no x)
+is <b>octal</b>, base 8. The RGB driver's <code>0666</code> is octal for
+"read+write permission for everyone", the classic Unix permission
+notation. It is not hex and not the number six hundred sixty-six.
+</div>
+
+<h3>Colors are just three bytes</h3>
+<p>The theme color of your app is <code>#e2382c</code>. That's hex too:
+red <code>0xE2</code> (226), green <code>0x38</code> (56), blue
+<code>0x2C</code> (44). When hw.py sends <code>(226, 53, 43)</code> to a
+keyboard zone, it is literally sending those three bytes down the
+ladder.</p>
+
+<!-- ================================================== -->
+<h2 id="bitops"><span class="num">3</span>The three bit tricks the code uses</h2>
+
+<p>Your C and Python code uses exactly three bit operations. Once you can
+read these, all the "scary" lines become plain sentences.</p>
+
+<h3>Trick 1: shift left <code>&lt;&lt;</code> means "move over"</h3>
+<p><code>1 &lt;&lt; 3</code> takes the number 1 (binary
+<code>0001</code>) and slides it 3 places left: <code>1000</code>, which
+is 8. Shifting left by 8 moves a value one whole byte over. So
+"multiply by 256" and "shift left 8" are the same thing.</p>
+<p>In hw.py, zone selection uses this:</p>
+<pre><code><span class="cm"># hw.py: light up zone i (zones are numbered by bit position)</span>
+KBD_STATIC.write_bytes(bytes([<span class="hl">1 &lt;&lt; i</span>, *color]))
+<span class="cm"># i=0 -> 0001 (zone 1),  i=1 -> 0010 (zone 2)</span>
+<span class="cm"># i=2 -> 0100 (zone 3),  i=3 -> 1000 (zone 4)</span></code></pre>
+
+<h3>Trick 2: OR <code>|</code> means "combine"</h3>
+<p><code>a | b</code> merges the 1-bits of both numbers. Since each zone
+owns its own bit, <code>0001 | 0010 | 0100 | 1000 = 1111</code> (= 15 =
+<code>0xF</code>) means "all four zones". This kind of number is called a
+<b>bitmask</b>: one on/off switch per bit, packed into a single value.</p>
+
+<h3>Trick 3: AND <code>&amp;</code> means "keep only these bits"</h3>
+<p><code>value &amp; 0xFF00</code> keeps the second byte of
+<code>value</code> and zeroes everything else. It's a cookie cutter: the
+mask decides which bits survive.</p>
+
+<div class="box try">
+<b>Try it right now.</b> Python is a hex calculator. Run
+<code>python3</code> in a terminal and type:
+<pre><code>hex(60)          <span class="cm"># '0x3c'</span>
+0x41             <span class="cm"># 65</span>
+bin(0x41)        <span class="cm"># '0b1000001'</span>
+1 &lt;&lt; 3           <span class="cm"># 8</span>
+0b0001 | 0b1000  <span class="cm"># 9  (remember this one for the fans)</span>
+0x3C01 &amp; 0xFF00  <span class="cm"># 15360 = 0x3C00</span></code></pre>
+</div>
+
+<!-- ================================================== -->
+<h2 id="firmware"><span class="num">4</span>Firmware, the EC, and WMI</h2>
+
+<p><b>Firmware</b> is software that ships inside the machine itself,
+stored on chips on the motherboard. It runs below (and before) Linux.
+Part of it is the <b>Embedded Controller (EC)</b>: a small, always-on
+microcontroller that handles fans, battery charging, the keyboard, and
+the keyboard backlight, even when the main CPU is busy or asleep. When
+NitroSense on Windows changes your fan speed, it is really asking the EC
+to do it. NitroPenguin asks the same EC the same questions, from Linux.</p>
+
+<p><b>ACPI</b> is the standard rulebook that lets an operating system
+talk to firmware. <b>WMI</b> is a thin layer on top that vendors like
+Acer use to expose their custom controls. The mental model that works:</p>
+
+<div class="box">
+WMI is a <b>mailbox system</b>. Each mailbox has a long unique address
+called a <b>GUID</b>. Inside a mailbox there are numbered
+<b>methods</b> (like menu options). You post a small package of bytes to
+(GUID, method number) and the firmware acts on it.
+</div>
+
+<p>Your laptop has two mailboxes this project uses, and you can see both
+GUIDs at the top of the C files:</p>
+
+<table>
+<tr><th>GUID (mailbox address)</th><th>What lives there</th><th>Methods used</th></tr>
+<tr><td><code>79772EC5-04B1-4BFD-843C-61E7F77B6CC9</code></td>
+    <td>Battery health control</td>
+    <td>19 read info, 20 read status, 21 set health mode</td></tr>
+<tr><td><code>7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56</code></td>
+    <td>"Gaming" features: RGB + fans</td>
+    <td>2 LED on, 5 sys info, 6 static color, 20 effect config, 14 fan
+    behavior, 16 fan speed</td></tr>
+</table>
+
+<p>Nobody outside Acer has documentation for these numbers. The community
+(Linuwu-Sense, JafarAkhondali's facer driver, frederik-h's battery
+driver) discovered them by watching what NitroSense does on Windows and
+trying values. That's why the C files say "extracted verbatim": the magic
+numbers are copied exactly from drivers that thousands of people already
+run, which is the safest way to use undocumented firmware.</p>
+
+<!-- ================================================== -->
+<h2 id="kernel"><span class="num">5</span>What a kernel module is</h2>
+
+<p>Linux has two worlds. <b>User space</b> is where normal programs run
+(your GUI, the daemon, your browser). <b>Kernel space</b> is the
+operating system core, with full hardware access. Only kernel code may
+call firmware. A <b>kernel module</b> is a plug-in for the kernel: a
+compiled piece of C (<code>.ko</code> file) you can load
+(<code>insmod</code> / <code>modprobe</code>) and unload
+(<code>rmmod</code>) at runtime.</p>
+
+<p>That's why the project needs C at all. Python cannot call
+<code>wmi_evaluate_method()</code>; only the kernel can. So each driver
+is a tiny translator: it shows user space a simple file, and forwards
+writes to that file into WMI mailbox calls.</p>
+
+<p>Every module has the same skeleton, which you can now recognize in all
+three of your <code>.c</code> files:</p>
+
+<pre><code>MODULE_LICENSE("GPL");                <span class="cm">// legal + unlocks kernel APIs</span>
+MODULE_ALIAS("wmi:" WMID_GUID4);      <span class="cm">// "load me when this mailbox exists"</span>
+
+static int __init my_init(void) {     <span class="cm">// runs at load</span>
+    if (!wmi_has_guid(WMID_GUID4))    <span class="cm">// no mailbox? refuse politely</span>
+        return -ENODEV;
+    <span class="cm">// register files / devices here</span>
+    return 0;
+}
+static void __exit my_exit(void) { }  <span class="cm">// runs at unload, cleans up</span>
+
+module_init(my_init);
+module_exit(my_exit);</code></pre>
+
+<p>Things like <code>-ENODEV</code> and <code>-EINVAL</code> are standard
+error codes ("no such device", "invalid argument"). Returning a negative
+number is how kernel code says "that failed, and here's why".</p>
+
+<!-- ================================================== -->
+<h2 id="fan"><span class="num">6</span>Reading the fan driver, line by line</h2>
+
+<p><span class="file">driver/acer-fan-ctl/acer-fan-ctl.c</span></p>
+
+<p>Start at the bottom of the ladder of ideas: this driver creates one
+file, <code>/sys/bus/wmi/drivers/acer-fan-ctl/fan_speed</code>. Writing
+"55,40" into it sets the CPU fan to 55% and GPU fan to 40%.</p>
+
+<h3>Step 1: the file handler</h3>
+<pre><code>static ssize_t fan_speed_store(struct device_driver *driver,
+                               const char *buf, size_t count)
+{
+    int cpu, gpu, err;
+
+    if (sscanf(buf, "%d,%d", &amp;cpu, &amp;gpu) != 2)   <span class="cm">// parse "55,40"</span>
+        return -EINVAL;                          <span class="cm">// not two numbers? reject</span>
+    if (cpu &lt; 0 || cpu &gt; 100 || gpu &lt; 0 || gpu &gt; 100)
+        return -EINVAL;                          <span class="cm">// out of range? reject</span>
+
+    mutex_lock(&amp;fan_lock);       <span class="cm">// one writer at a time</span>
+    err = set_fan_speed(cpu, gpu);
+    mutex_unlock(&amp;fan_lock);
+    ...
+}</code></pre>
+<p><code>_store</code> is the kernel's naming convention for "someone
+wrote to my file" (and <code>_show</code> for "someone read it"). The
+<b>mutex</b> is a door lock so two programs writing at the same instant
+can't interleave their WMI calls.</p>
+
+<h3>Step 2: the hex, finally decoded</h3>
+<p>These are the famous magic numbers:</p>
+<pre><code>#define FAN_BEHAVIOR_AUTO    0x410009
+#define FAN_BEHAVIOR_MAX     0x820009
+#define FAN_BEHAVIOR_CUSTOM  0xC30009</code></pre>
+<p>Split them into bytes and a pattern appears. Take
+<code>0x410009</code> = bytes <code>41 | 00 | 09</code>:</p>
+
+<table>
+<tr><th>Part</th><th>Value</th><th>Meaning (as reverse engineered)</th></tr>
+<tr><td>Low bytes</td><td><code>0x0009</code> = binary 1001</td>
+    <td>which fans this applies to. Bit 0 = CPU fan (1), bit 3 = GPU fan
+    (8). 1+8 = 9 = both fans. Same bitmask trick as the RGB zones.</td></tr>
+<tr><td>High byte</td><td><code>0x41</code> = binary 0100&nbsp;0001</td>
+    <td>the mode, 2 bits per fan: CPU mode in the low bits, GPU mode in
+    the high bits. 01 = auto.</td></tr>
+</table>
+
+<p>Now check the pattern against the other two:</p>
+<div class="bits">
+0x41 = <b>01</b>00 00<b>01</b> &nbsp;&rarr;&nbsp; both fans mode 01 = auto<br>
+0x82 = <b>10</b>00 00<b>10</b> &nbsp;&rarr;&nbsp; both fans mode 10 = max<br>
+0xC3 = <b>11</b>00 00<b>11</b> &nbsp;&rarr;&nbsp; both fans mode 11 = custom
+</div>
+<p>Even the weird "one fan auto, one custom" pairs fit:
+<code>0xC00008</code> is "GPU (bit 8) to mode 11", and
+<code>0x30001</code> is "CPU (bit 1) to mode 11". The hex was never
+random. It's a tiny packed data structure, and now you can read it.</p>
+
+<h3>Step 3: the speed math</h3>
+<pre><code>static u64 fan_val_calc(int percentage, int fan_index)
+{
+    return (((percentage * 25600) / 100) &amp; 0xFF00) + fan_index;
+}</code></pre>
+<p>Looks cryptic, is actually one sentence: <b>"put the percentage in
+byte 1 and the fan number in byte 0."</b> Walk through 60% for the CPU
+fan (index 1):</p>
+<pre><code>60 * 25600 / 100  = 15360          <span class="cm"># same as 60 * 256, i.e. 60 &lt;&lt; 8</span>
+15360             = 0x3C00         <span class="cm"># 0x3C is 60! moved one byte left</span>
+0x3C00 &amp; 0xFF00   = 0x3C00         <span class="cm"># mask: keep it a clean single byte</span>
+0x3C00 + 1        = 0x3C01         <span class="cm"># fan index in the low byte</span>
+                                   <span class="cm"># firmware reads: fan 1, duty 60%</span></code></pre>
+
+<h3>Step 4: nothing at load time</h3>
+<p>Notice <code>acer_fan_ctl_init()</code> makes <i>zero</i> WMI calls.
+That's a deliberate safety decision you made in this project: loading the
+module changes nothing; every boot starts in the firmware's own auto
+mode, and the firmware's thermal protection stays active in every mode.</p>
+
+<!-- ================================================== -->
+<h2 id="rgb"><span class="num">7</span>The RGB driver and its payloads</h2>
+
+<p><span class="file">driver/acer-kbd-rgb/acer-kbd-rgb.c</span></p>
+
+<p>The fan driver made a sysfs text file. The RGB driver instead creates
+two <b>character devices</b> ("chardevs"), which accept raw bytes rather
+than text:</p>
+
+<table>
+<tr><th>Device</th><th>Accepts</th><th>Forwards to</th></tr>
+<tr><td><code>/dev/acer-gkbbl-static-0</code></td><td>exactly 4 bytes:
+    <code>{zone, red, green, blue}</code></td><td>WMI method 6</td></tr>
+<tr><td><code>/dev/acer-gkbbl-0</code></td><td>exactly 16 bytes: effect
+    config</td><td>WMI method 20</td></tr>
+</table>
+
+<p>The write handler shows the standard shape of moving data from a user
+program into the kernel:</p>
+<pre><code>if (count != GAMING_KBBL_CONFIG_LEN)      <span class="cm">// must be exactly 16 bytes</span>
+    return -EINVAL;
+if (copy_from_user(config_buf, buf, ...)) <span class="cm">// safely copy from the program</span>
+    return -EFAULT;
+WMI_gaming_execute_u8_array(20, config_buf, 16);  <span class="cm">// post to the mailbox</span></code></pre>
+<p><code>copy_from_user()</code> exists because the kernel must never
+trust pointers from a user program blindly; this is the checked, safe way
+to bring those 16 bytes across the border.</p>
+
+<h3>The 16-byte effect payload</h3>
+<p>Here is the payload as hw.py builds it, byte by byte. This layout was
+reverse engineered by the community; bytes marked "always 0" are simply
+not understood and left alone:</p>
+<table>
+<tr><th>Byte</th><th>Field</th><th>Example (Wave)</th></tr>
+<tr><td>0</td><td>mode (0 static, 1 breath, 2 neon, 3 wave, 4 shifting, 5 zoom)</td><td>3</td></tr>
+<tr><td>1</td><td>speed (1..9)</td><td>4</td></tr>
+<tr><td>2</td><td>brightness (0..100)</td><td>100</td></tr>
+<tr><td>3</td><td>8 when wave, else 0 (unknown, copied from upstream)</td><td>8</td></tr>
+<tr><td>4</td><td>direction (1 or 2)</td><td>1</td></tr>
+<tr><td>5, 6, 7</td><td>red, green, blue</td><td>226, 53, 43</td></tr>
+<tr><td>8</td><td>always 0</td><td>0</td></tr>
+<tr><td>9</td><td>1 = apply now</td><td>1</td></tr>
+<tr><td>10..15</td><td>always 0</td><td>0</td></tr>
+</table>
+
+<h3>The init spell: <code>8L | (15UL &lt;&lt; 40)</code></h3>
+<p>At load, the driver runs two calls that upstream found necessary to
+wake the 4-zone keyboard on Nitros, then enables all zones:</p>
+<pre><code>WMI_gaming_execute_u64(5, 0, &amp;gaming_sysinfo);  <span class="cm">// "GetGamingSysInfo": the wake-up quirk</span>
+WMI_gaming_execute_u64(2, <span class="hl">8L | (15UL &lt;&lt; 40)</span>, NULL);</code></pre>
+<p>You can decode that argument yourself now. It's a 64-bit number used
+as a little form with two fields: <code>8</code> in the lowest byte (the
+sub-command) and <code>15</code> (binary 1111, the all-four-zones
+bitmask) shifted 40 bits up, into byte 5, where the firmware expects the
+zone list. The <code>L</code>/<code>UL</code> suffixes just tell C "treat
+these as long/unsigned long", so the shift has room to move.</p>
+
+<p>Last detail: <code>DEVMODE=%#o", 0666</code> makes both
+<code>/dev</code> files writable by every user. Deliberate policy, same
+as the upstream driver: the worst a malicious program could do with it is
+change your keyboard colors.</p>
+
+<!-- ================================================== -->
+<h2 id="battery"><span class="num">8</span>The battery driver</h2>
+
+<p><span class="file">driver/acer-wmi-battery/acer-wmi-battery.c</span>
+(by Frederik Harwath, used unmodified)</p>
+
+<p>Same ladder, new detail: this driver defines the mailbox messages as C
+<b>structs</b>, which are just named byte layouts. Compare this with the
+16-byte table above; it's the same idea with names:</p>
+<pre><code>struct set_battery_health_control_input {
+    u8 uBatteryNo;        <span class="cm">// byte 0: which battery (always 1)</span>
+    u8 uFunctionMask;     <span class="cm">// byte 1: 1 = health mode, 2 = calibration</span>
+    u8 uFunctionStatus;   <span class="cm">// byte 2: 1 = on, 0 = off</span>
+    u8 uReservedIn[5];    <span class="cm">// bytes 3-7: padding, always 0</span>
+} __packed;               <span class="cm">// "no gaps": bytes exactly as listed</span></code></pre>
+<p>So "turn the limiter on" is literally the 8 bytes
+<code>01 01 01 00 00 00 00 00</code> posted to method 21. That's the
+whole secret.</p>
+
+<h3>The three-valued answer, and the bug you lived through</h3>
+<p><code>health_mode</code> in sysfs can read <code>1</code> (on),
+<code>0</code> (off), or <code>-1</code> (firmware says the feature is
+unavailable). Remember when your battery toggle froze at "authorizing"?
+That was this line:</p>
+<pre><code>static ssize_t health_mode_store(...)
+{
+    if (battery_status.health_mode &lt; 0)
+        return 0;                <span class="cm">// unavailable: consume nothing</span>
+    ...</code></pre>
+<p>Returning 0 from a store handler means "I accepted 0 of your bytes".
+The writing program (your <code>echo 1 &gt;</code>) then tries again,
+forever. When the leftover Linuwu-Sense driver was holding the battery
+mailbox, health_mode went to -1 and every write hung. That's why hw.py
+now treats a leading "-" as "unavailable" and wraps privileged writes in
+<code>timeout 5</code>. One line of C, one afternoon of debugging.</p>
+
+<p>One more nice decode, the battery temperature:</p>
+<pre><code>return sysfs_emit(buf, "%d\n", (value - 2731) * 100);</code></pre>
+<p>The firmware reports temperature in tenths of a Kelvin (a battery
+industry standard). 2731 tenths = 273.1 K = 0&deg;C, so subtracting it
+converts to tenths of Celsius, and &times;100 converts to the
+milli-degrees Linux likes. Your GUI divides by 1000 to display it.
+Numbers in, numbers out, units all the way down.</p>
+
+<!-- ================================================== -->
+<h2 id="files"><span class="num">9</span>"Everything is a file"</h2>
+
+<p>You've now seen the two flavors of the most Linux idea there is:
+hardware controls exposed as files.</p>
+<table>
+<tr><th>Kind</th><th>Feels like</th><th>In this project</th></tr>
+<tr><td><b>sysfs</b> (<code>/sys/...</code>)</td><td>small text files, one
+    value each</td><td><code>health_mode</code>, <code>fan_speed</code>,
+    temperatures, battery percentage</td></tr>
+<tr><td><b>chardev</b> (<code>/dev/...</code>)</td><td>a byte pipe with a
+    strict format</td><td><code>acer-gkbbl-0</code> (16 bytes),
+    <code>acer-gkbbl-static-0</code> (4 bytes)</td></tr>
+</table>
+<p>This design is why the Python side stays so simple: no special
+libraries, no bindings. Reading a temperature is
+<code>Path(...).read_text()</code>. Setting a fan is writing "55,40" to a
+file. The kernel modules did the hard part of making that true.</p>
+
+<!-- ================================================== -->
+<h2 id="python"><span class="num">10</span>The Python side</h2>
+
+<p>Everything above the kernel is ordinary Python in
+<code>nitrotool/</code>, split by one rule: <b>hw.py knows about
+hardware, nothing else does.</b></p>
+
+<h3>hw.py, the translator</h3>
+<p>Every page and the daemon go through it. Watch it mirror the C side
+exactly:</p>
+<pre><code><span class="cm"># hw.py: 4 bytes to the static chardev: {zone bitmask, r, g, b}</span>
+KBD_STATIC.write_bytes(bytes([1 &lt;&lt; i, *color]))
+
+<span class="cm"># hw.py: the 16-byte effect payload from the table in section 7</span>
+dyn = bytearray(16)
+dyn[0] = state.mode
+dyn[1] = state.speed
+dyn[2] = state.brightness
+...
+KBD_DYNAMIC.write_bytes(bytes(dyn))</code></pre>
+<p>Its other job is <b>graceful degradation</b>: every read is wrapped so
+that a missing driver means "feature shows as unavailable in the GUI"
+instead of a crash.</p>
+
+<h3>Two programs, one brain</h3>
+<table>
+<tr><th></th><th>GUI (<code>gui/</code>)</th><th>Daemon (<code>daemon.py</code>)</th></tr>
+<tr><td>Toolkit</td><td>Qt (PySide6), ~108 MB</td><td>pure standard library, ~17 MB</td></tr>
+<tr><td>Runs</td><td>only while the window is open</td><td>always (systemd user service)</td></tr>
+<tr><td>Owns</td><td>buttons, sliders, pages</td><td>Temp keyboard mode, fan watchdog,
+    80% notification, Nitro key, re-applying RGB at boot</td></tr>
+</table>
+<p>This split is why your RAM usage dropped from ~150 MB to ~17 MB idle:
+the expensive Qt process now exists only when you're looking at it. The
+GUI checks <code>hw.daemon_running()</code> (a pidfile plus a
+<code>/proc</code> check) so the two never drive the hardware at the same
+time.</p>
+
+<h3>The daemon's event loop</h3>
+<p>The heart of daemon.py is one line:</p>
+<pre><code>ready, _, _ = select.select(rlist, [], [], POLL_SECONDS)</code></pre>
+<p><code>select()</code> means "sleep until the Nitro key file has data,
+or 3 seconds pass, whichever comes first". Sleeping in the kernel costs
+nothing. Once awake it does a few file reads (temperatures), maybe a few
+file writes (keyboard color), and sleeps again. That's the entire trick
+behind "always running yet tiny".</p>
+
+<h3>Root, but only for one line: polkit</h3>
+<p>Sysfs files like <code>health_mode</code> are owned by root. Instead
+of running the whole app as root (bad idea), the app runs one tiny
+command with privileges when needed:</p>
+<pre><code>pkexec timeout 5 sh -c "echo 1 &gt; /sys/.../health_mode"</code></pre>
+<p><code>pkexec</code> is what pops the system password dialog. The
+<code>timeout 5</code> is your battery-bug scar tissue: no privileged
+write is ever allowed to hang forever again.</p>
+
+<!-- ================================================== -->
+<h2 id="keys"><span class="num">11</span>The keyboard-key saga (input events)</h2>
+
+<p>Your Fn+F9/F10 adventure is worth understanding because it shows the
+<i>input</i> ladder, which runs the opposite direction: hardware up to
+apps.</p>
+
+<div class="stack">
+  <div class="layer"><b>EC + keyboard controller</b>
+    <span>key press emits a <b>scancode</b> (a raw byte code, e.g. hex
+    <code>e0 70</code>)</span></div>
+  <div class="down">&darr;</div>
+  <div class="layer"><b>Kernel atkbd driver + udev hwdb</b>
+    <span>a lookup table maps scancode &rarr; <b>keycode</b> (a named key
+    like KEY_BRIGHTNESSDOWN)</span></div>
+  <div class="down">&darr;</div>
+  <div class="layer"><b>evdev: /dev/input/event*</b>
+    <span>keycodes become 24-byte event records any program can
+    read</span></div>
+  <div class="down">&darr;</div>
+  <div class="layer"><b>GNOME</b>
+    <span>maps keycodes to actions: dim screen, show OSD, ...</span></div>
+</div>
+
+<p>Your bug: pressing Fn+F10 (keyboard backlight up) made the EC leak
+scancode <code>0xEF</code>, and a 15-year-old "all Acer laptops" table
+shipped with systemd said <code>0xEF</code> means <i>screen brightness
+down</i>. The fix you shipped is a 2-line correction to that lookup
+table, scoped to exactly your model:</p>
+<pre><code><span class="cm"># packaging/61-nitropenguin-kbd.hwdb</span>
+evdev:atkbd:dmi:bvn*:bvr*:bd*:svnAcer*:pnNitroAN515-45:*
+ KEYBOARD_KEY_f0=kbdillumdown   <span class="cm"># Fn+F9</span>
+ KEYBOARD_KEY_ef=kbdillumup     <span class="cm"># Fn+F10</span></code></pre>
+
+<p>The daemon also reads this ladder directly for the Nitro key. An evdev
+record is exactly 24 bytes, and Python unpacks it with a format string
+that is really just another byte layout, like the C structs:</p>
+<pre><code>_EVENT_FORMAT = "llHHi"   <span class="cm"># long, long   = 16 bytes of timestamp</span>
+                          <span class="cm"># H, H         = event type, key code</span>
+                          <span class="cm"># i            = value (1 = key down)</span></code></pre>
+
+<!-- ================================================== -->
+<h2 id="glue"><span class="num">12</span>The glue: installer, DKMS, systemd, polkit</h2>
+
+<table>
+<tr><th>Piece</th><th>Job</th><th>Where</th></tr>
+<tr><td><b>install.sh</b></td><td>clones the repo to
+    <code>~/.local/share/nitropenguin</code>, sets up Python with uv,
+    creates the launcher, menu entry, daemon service, and the hwdb
+    fix</td><td>repo root, run via <code>curl | bash</code></td></tr>
+<tr><td><b>uv</b></td><td>creates <code>.venv/</code> with the exact
+    package versions from <code>uv.lock</code>, so every machine gets
+    the same environment</td><td><code>pyproject.toml</code></td></tr>
+<tr><td><b>DKMS</b></td><td>rebuilds the three C modules automatically
+    every time you get a kernel update, from sources copied to
+    <code>/usr/src/</code></td><td><code>driver/*/dkms.conf</code></td></tr>
+<tr><td><b>modules-load.d</b></td><td>one-line files that tell Linux to
+    load each module at boot</td><td><code>/etc/modules-load.d/</code></td></tr>
+<tr><td><b>systemd user service</b></td><td>starts the daemon at login,
+    restarts it if it crashes</td>
+    <td><code>packaging/nitropenguin-daemon.service</code></td></tr>
+<tr><td><b>udev rules</b></td><td>react when devices appear: set
+    permissions, apply the hwdb keymap</td>
+    <td><code>/etc/udev/</code></td></tr>
+</table>
+
+<p>The mental model: <b>the C modules teach the kernel new files, and the
+glue makes sure all of it comes back by itself after every reboot and
+kernel update.</b></p>
+
+<!-- ================================================== -->
+<h2 id="logs"><span class="num">13</span>The activity log</h2>
+
+<p>The newest layer (branch <code>feature/debug-logging</code>) writes a
+diary of everything the app and daemon do, to
+<code>~/.config/nitrotool/logs/</code>. One line per event, fields
+separated by pipes so it's trivial to read and to load into a
+spreadsheet:</p>
+<pre><code>2026-07-28T11:32:34.741 | gui | INFO | hw | Keyboard effect applied: Static brightness=100 speed=4
+    time                | who | level| where | what happened</code></pre>
+<p>Files rotate at 200 KB so they can never fill your disk. The Export
+button in Settings glues a snapshot of the system (model, kernel, driver
+states, the raw sysfs values you now know how to read) to both diaries
+merged in time order. When something misbehaves, that one file contains
+the whole story of this page, as it actually happened on your machine.</p>
+
+<!-- ================================================== -->
+<h2 id="try"><span class="num">14</span>Poke it yourself (safe experiments)</h2>
+
+<div class="box try">
+<p><b>Read the hardware files directly.</b> All of these are harmless
+reads:</p>
+<pre><code>cat /sys/bus/wmi/drivers/acer-wmi-battery/health_mode
+cat /sys/bus/wmi/drivers/acer-fan-ctl/fan_speed
+cat /sys/class/power_supply/BAT1/capacity
+cat /sys/class/dmi/id/product_name</code></pre>
+
+<p><b>Set a keyboard color with no app at all.</b> This is the exact
+4-byte payload from section 7, typed by hand (15 = all zones,
+then R G B):</p>
+<pre><code>printf '\x0f\xff\x00\x00' | sudo tee /dev/acer-gkbbl-static-0 &gt; /dev/null</code></pre>
+<p>Your keyboard turns red. You just did, by hand, what every layer of
+the project automates. (The app will restore your saved effect next time
+it applies.)</p>
+
+<p><b>Watch the kernel's own diary while you load/unload things:</b></p>
+<pre><code>sudo dmesg --follow    <span class="cm"># then toggle something in the app</span></code></pre>
+
+<p><b>See your drivers loaded right now:</b></p>
+<pre><code>lsmod | grep acer
+dkms status</code></pre>
+</div>
+
+<!-- ================================================== -->
+<h2 id="glossary"><span class="num">15</span>Glossary</h2>
+
+<table>
+<tr><th>Term</th><th>Plain meaning</th></tr>
+<tr><td>bit / byte</td><td>one 0-or-1 switch / eight of them (0..255)</td></tr>
+<tr><td>hex (0x...)</td><td>base-16 numbers; 2 digits = exactly 1 byte</td></tr>
+<tr><td>octal (0...)</td><td>base-8 numbers; used for Unix permissions like 0666</td></tr>
+<tr><td>bitmask</td><td>a number used as a row of on/off switches, one per bit</td></tr>
+<tr><td>&lt;&lt;, |, &amp;</td><td>shift (move bits), OR (combine), AND (filter)</td></tr>
+<tr><td>firmware</td><td>vendor software living on motherboard chips, below Linux</td></tr>
+<tr><td>EC</td><td>Embedded Controller: the small always-on chip running fans, charging, keyboard</td></tr>
+<tr><td>ACPI / WMI</td><td>the standard way an OS talks to firmware / the vendor mailbox system on top</td></tr>
+<tr><td>GUID</td><td>the long unique address of one WMI mailbox</td></tr>
+<tr><td>kernel module (.ko)</td><td>a C plug-in loaded into the running kernel</td></tr>
+<tr><td>sysfs / chardev</td><td>hardware controls exposed as text files / as raw-byte device files</td></tr>
+<tr><td>struct (__packed)</td><td>a named byte layout for a message, no gaps</td></tr>
+<tr><td>mutex</td><td>a lock so only one caller acts at a time</td></tr>
+<tr><td>scancode / keycode</td><td>raw byte from the keyboard / the named key it maps to</td></tr>
+<tr><td>hwdb / udev</td><td>the scancode lookup table / the system that reacts to devices appearing</td></tr>
+<tr><td>evdev</td><td>/dev/input/event*: key events as 24-byte records</td></tr>
+<tr><td>DKMS</td><td>auto-rebuilds your modules after each kernel update</td></tr>
+<tr><td>systemd user service</td><td>starts and babysits the daemon at login</td></tr>
+<tr><td>polkit / pkexec</td><td>the "run one command as root, with a password dialog" system</td></tr>
+<tr><td>daemon</td><td>a background program with no window</td></tr>
+</table>
+
+<p class="sub" style="margin-top:40px">Generated for the NitroPenguin
+project. Sources of truth: the code in <code>driver/</code> and
+<code>nitrotool/</code>, which you can now read.</p>
+
+</main>
+</body>
+</html>
