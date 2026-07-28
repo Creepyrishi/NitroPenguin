@@ -124,8 +124,10 @@ fi
 # ---- 3. clone or update ----
 if [ -d "$INSTALL_DIR/.git" ]; then
     say "Updating existing install at $INSTALL_DIR"
+    # FETCH_HEAD, not origin/$BRANCH: the clone is shallow and single-
+    # branch, so other branches never get remote-tracking refs.
     git -C "$INSTALL_DIR" fetch --depth 1 origin "$BRANCH"
-    git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
+    git -C "$INSTALL_DIR" reset --hard FETCH_HEAD
 else
     say "Cloning into $INSTALL_DIR"
     mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -162,8 +164,11 @@ UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 cp "$INSTALL_DIR/packaging/nitropenguin-daemon.service" "$UNIT_DIR/"
 if systemctl --user daemon-reload 2>/dev/null; then
-    systemctl --user enable --now nitropenguin-daemon.service 2>/dev/null \
-        && say "Daemon started and set to auto-start at login." \
+    # restart, not "enable --now": an already-running daemon must pick
+    # up the updated code too
+    systemctl --user enable nitropenguin-daemon.service 2>/dev/null || true
+    systemctl --user restart nitropenguin-daemon.service 2>/dev/null \
+        && say "Daemon (re)started and set to auto-start at login." \
         || warn "Could not start the user service; check: systemctl --user status nitropenguin-daemon"
 else
     warn "No systemd user session here; the daemon will start next login."
