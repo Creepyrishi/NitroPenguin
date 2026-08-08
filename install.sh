@@ -25,7 +25,10 @@ die()  { printf '%sx  %s%s\n' "$C_RED" "$*" "$C_0" >&2; exit 1; }
 ask() {
     # Prompt on the terminal even when the script arrives via a pipe.
     local prompt="$1" reply
-    if [ -r /dev/tty ]; then
+    # Test by actually opening it: /dev/tty can pass -r and still fail to
+    # open when there is no controlling terminal, which turned the prompts
+    # below into errors and silently took the "no" branch.
+    if { : < /dev/tty; } 2>/dev/null; then
         printf '%s [y/N] ' "$prompt" > /dev/tty
         read -r reply < /dev/tty || reply=""
     else
