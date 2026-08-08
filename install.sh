@@ -91,12 +91,15 @@ KREL="$(uname -r)"
 if [ "$need_pkgs" = 1 ]; then
     warn "Some build prerequisites are missing (git, a C compiler, or the"
     warn "kernel headers for $KREL). These need your system package manager."
+    # The unversioned headers package matters as much as the versioned one:
+    # without it a kernel upgrade brings no headers, DKMS cannot rebuild the
+    # drivers for the new kernel, and they silently vanish after the reboot.
     if   have apt-get; then
-        cmd="sudo apt-get install -y build-essential dkms git linux-headers-$KREL"
+        cmd="sudo apt-get install -y build-essential dkms git linux-headers-$KREL linux-headers-generic"
     elif have pacman;  then
         cmd="sudo pacman -S --needed base-devel dkms git linux-headers"
     elif have dnf;     then
-        cmd="sudo dnf install -y @development-tools dkms git kernel-devel-$KREL"
+        cmd="sudo dnf install -y @development-tools dkms git kernel-devel-$KREL kernel-devel"
     else
         cmd=""
     fi

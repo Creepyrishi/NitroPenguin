@@ -32,6 +32,10 @@ _log = logging.getLogger("daemon")
 POLL_SECONDS = 3.0
 BATTERY_POLL_SECONDS = 5.0
 HOTKEY_DEVICE_NAME = "Acer WMI hotkeys"
+# The daemon usually wins the race against logind, which grants the
+# logged-in user access to the hotkey device (udev "uaccess") only once the
+# session is set up. So a first failure means "not yet", not "never".
+HOTKEY_RETRY_SECONDS = 10.0
 
 # linux/input.h: struct input_event = timeval + type + code + value.
 # On 64-bit, timeval is 16 bytes -> 24-byte record, "llHHi".
@@ -74,6 +78,8 @@ class Daemon:
         self._battery_held = False
         self._last_battery_poll = 0.0
         self._hotkey_fd: int | None = None
+        self._hotkey_retry_at = 0.0
+        self._hotkey_warned = False
         self._gui: subprocess.Popen | None = None
 
     # ----- lifecycle -----
@@ -115,19 +121,30 @@ class Daemon:
     # ----- hotkey -----
 
     def _open_hotkey(self) -> None:
+        """Try to start watching the Nitro key. Safe to call repeatedly:
+        the device may only become readable a few seconds into the session,
+        and it comes and goes across suspend."""
+        self._hotkey_retry_at = time.monotonic() + HOTKEY_RETRY_SECONDS
         dev = _find_hotkey_event_device(HOTKEY_DEVICE_NAME)
         if not dev:
-            _log.info("Hotkey device '%s' not present", HOTKEY_DEVICE_NAME)
+            if not self._hotkey_warned:
+                self._hotkey_warned = True
+                _log.info("Hotkey device '%s' not present",
+                          HOTKEY_DEVICE_NAME)
             return
         try:
             self._hotkey_fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
-            _log.info("Watching Nitro key on %s", dev)
         except OSError as err:
-            # No read permission (user not in the 'input' group): the
-            # GNOME shortcut path handles the key instead.
+            # Usually the udev "uaccess" ACL simply is not applied yet; the
+            # retry picks it up. Until then the GNOME shortcut can serve.
             self._hotkey_fd = None
-            _log.info("Cannot watch %s (%s); GNOME shortcut handles the "
-                      "Nitro key instead", dev, err)
+            if not self._hotkey_warned:
+                self._hotkey_warned = True
+                _log.info("Cannot watch %s yet (%s); retrying every %.0fs",
+                          dev, err, HOTKEY_RETRY_SECONDS)
+            return
+        self._hotkey_warned = False
+        _log.info("Watching Nitro key on %s", dev)
 
     def _read_hotkey(self) -> None:
         if self._hotkey_fd is None:
@@ -138,7 +155,12 @@ class Daemon:
             return
         except OSError as err:
             _log.warning("Hotkey device lost: %s", err)
+            try:
+                os.close(self._hotkey_fd)
+            except OSError:
+                pass
             self._hotkey_fd = None
+            self._hotkey_warned = False   # re-report if it stays gone
             return
         for i in range(0, len(data) - _EVENT_SIZE + 1, _EVENT_SIZE):
             _s, _us, etype, _code, value = struct.unpack_from(
@@ -256,6 +278,9 @@ class Daemon:
                 self._read_hotkey()
                 continue  # a keypress woke us; skip the poll this pass
             # timed out: run the periodic hardware work
+            if (self._hotkey_fd is None
+                    and time.monotonic() >= self._hotkey_retry_at):
+                self._open_hotkey()
             self._tick_keyboard()
             self._tick_fan_watchdog()
             now = time.monotonic()

@@ -58,10 +58,12 @@ class ComponentRow(QWidget):
         text = {
             "permanent": "Permanent",
             "temporary": "Temporary",
+            "stale": "Needs loading",
             "off": "Not loaded",
         }[self.status]
         chip_kind = {
-            "permanent": "ok", "temporary": "temp", "off": "off",
+            "permanent": "ok", "temporary": "temp",
+            "stale": "temp", "off": "off",
         }[self.status]
         self.chip.setText(text)
         self.chip.setProperty("chip", chip_kind)
@@ -103,6 +105,33 @@ class SetupPage(QWidget):
 
         # ACTIONS
         actions_card = Card("Actions")
+
+        # Recovery row: installed drivers missing from the running kernel
+        # (a kernel update booted before DKMS finished rebuilding them).
+        self.load_widget = QWidget()
+        load_row = QHBoxLayout(self.load_widget)
+        load_row.setContentsMargins(0, 0, 0, 0)
+        load_col = QVBoxLayout()
+        load_col.setSpacing(2)
+        load_title = QLabel("Load the installed drivers")
+        load_title.setStyleSheet("font-size: 14px;")
+        load_sub = QLabel(
+            "These are already installed, they are just not in the running "
+            "kernel — usually because a kernel update rebuilt them after "
+            "this boot. Loading them now fixes it until the next reboot, "
+            "which will then pick them up on its own."
+        )
+        load_sub.setProperty("class", "muted")
+        load_sub.setWordWrap(True)
+        load_col.addWidget(load_title)
+        load_col.addWidget(load_sub)
+        load_row.addLayout(load_col, 1)
+        self.load_button = QPushButton("Load now")
+        self.load_button.setProperty("class", "primary")
+        self.load_button.setCursor(Qt.PointingHandCursor)
+        self.load_button.clicked.connect(self._load_installed)
+        load_row.addWidget(self.load_button, 0, Qt.AlignVCenter)
+        actions_card.add(self.load_widget)
 
         try_row = QHBoxLayout()
         try_col = QVBoxLayout()
@@ -186,10 +215,19 @@ class SetupPage(QWidget):
             row.update_status(comps[row.key])
 
         statuses = [c.status for c in comps.values()]
+        stale = [k for k, c in comps.items() if c.status == "stale"]
+        self.load_widget.setVisible(bool(stale))
         if all(s == "permanent" for s in statuses):
             self.summary.setText(
                 "Everything is installed permanently. The drivers load "
                 "on their own at every boot."
+            )
+        elif stale:
+            self.summary.setText(
+                "Some drivers are installed but not running right now. This "
+                "normally means a kernel update landed and the new kernel "
+                "booted before the drivers had been rebuilt for it. Use "
+                "\"Load now\" below — no reinstall needed."
             )
         elif any(s == "temporary" for s in statuses):
             self.summary.setText(
@@ -205,6 +243,7 @@ class SetupPage(QWidget):
             )
 
         busy = self._process is not None
+        self.load_button.setEnabled(not busy)
         self.try_button.setEnabled(not busy)
         self.install_button.setEnabled(not busy)
         self.remove_button.setEnabled(not busy)
@@ -214,6 +253,13 @@ class SetupPage(QWidget):
             row.key for row in self.rows
             if row.checkbox.isChecked() and row.status != exclude_status
         ]
+
+    def _load_installed(self) -> None:
+        # Every stale component, regardless of the checkboxes: this is a
+        # repair, and leaving half the drivers unloaded helps nobody.
+        keys = [row.key for row in self.rows if row.status == "stale"]
+        if keys:
+            self._run(hw.load_installed_command(keys))
 
     def _try_temp(self) -> None:
         keys = self._selected(exclude_status="permanent")

@@ -72,6 +72,12 @@ class Component:
             return "permanent"
         if self.loaded:
             return "temporary"
+        if self.installed:
+            # Installed for boot but absent from the running kernel. Normal
+            # right after a kernel update: the new kernel booted before DKMS
+            # had rebuilt the module, so boot-time autoloading found nothing.
+            # A modprobe now (or the next reboot) brings it back.
+            return "stale"
         return "off"
 
 
@@ -103,6 +109,31 @@ def components() -> list[Component]:
 
 def any_temporary() -> bool:
     return any(c.status == "temporary" for c in components())
+
+
+def any_stale() -> bool:
+    return any(c.status == "stale" for c in components())
+
+
+MODULE_NAMES = {
+    "battery": "acer-wmi-battery",
+    "rgb": "acer-kbd-rgb",
+    "fan": "acer-fan-ctl",
+}
+
+
+def load_installed_command(keys: list[str]) -> list[str]:
+    """One pkexec invocation loading already-installed drivers into the
+    running kernel — the fix for the "stale" state after a kernel update."""
+    parts = [f"modprobe {MODULE_NAMES[k]}" for k in keys]
+    if "fan" in keys:
+        # Mirrors install-fan.sh: the app writes fan_speed without a
+        # password. The udev rule normally does this on module add.
+        parts.append(
+            "chmod 666 /sys/bus/wmi/drivers/acer-fan-ctl/fan_speed "
+            "2>/dev/null || true"
+        )
+    return ["pkexec", "bash", "-c", " && ".join(parts)]
 
 
 def load_temp_command(keys: list[str]) -> list[str]:
