@@ -20,11 +20,20 @@ drivers alone.
 Built and tested on the **Nitro AN515-45** (Ryzen 5000 + GTX 1650). Other
 Nitro and Predator models may work too. See [Supported devices](#-supported-devices).
 
-> **A note from me.** I'm not a hardware or kernel developer. I made this
-> because nothing I tried worked cleanly on my Nitro, and I put it together
-> with a lot of help from AI. I tested every feature on my own laptop, and
-> please open an issue if something looks wrong. It never replaces your stock
-> drivers, and everything it does can be undone.
+> **Why this exists, and how it was built.** I moved my Nitro to Linux, lost
+> NitroSense, and nothing I found brought it back cleanly. So I built the thing
+> I needed.
+>
+> I am a CS student, not a kernel or hardware developer, and **this project was
+> built with heavy AI assistance.** The kernel modules are adapted from the three
+> GPL-2.0 projects credited at the bottom; the application around them was
+> largely AI-written. I do not claim to have written it unaided, and I am still
+> working through the driver code myself.
+>
+> What I did do is test every feature on my own laptop, on the model in the table
+> below. I am saying this plainly because you are about to load code into your
+> kernel — read it first, or wait for someone who can. It never replaces your
+> stock drivers, and everything it does can be undone.
 
 ![Battery page](img/battery.png)
 
@@ -77,8 +86,6 @@ puts the fans back on Auto. Every boot starts on the firmware curve.
 Dark, light, or match-your-system theme. Install only the features you want
 and add the rest later.
 
-![Settings](img/settings.png)
-
 ### 🪶 Light on memory
 
 The window is a normal desktop app: open it when you need it, close it when
@@ -86,6 +93,8 @@ you're done, and it fully exits. The always-on work (Temp keyboard mode, the
 fan watchdog, the 80% notification) runs in a small background daemon that
 uses about 17 MB and starts automatically at login. Press the **Nitro key**
 to open the window any time.
+
+![Settings](img/settings.png)
 
 ## 🛠️ How it works
 
