@@ -80,6 +80,15 @@ class Component:
             return "stale"
         return "off"
 
+    @property
+    def chip_kind(self) -> str:
+        """Style class for this component's status chip. Single source of
+        truth, and total: a status added later can no longer crash one
+        screen while another screen happens to handle it."""
+        return {
+            "permanent": "ok", "temporary": "temp", "stale": "temp",
+        }.get(self.status, "off")
+
 
 def components() -> list[Component]:
     return [

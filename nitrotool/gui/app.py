@@ -198,18 +198,26 @@ class MainWindow(QMainWindow):
     def _refresh_banner(self) -> None:
         comps = hw.components()
         temp = [c for c in comps if c.status == "temporary"]
+        stale = [c for c in comps if c.status == "stale"]
 
         # Setup tab shows while there is a pending decision: something in
-        # temporary mode, or a first run with nothing set up at all.
-        # Partial installs are a valid end state; adding or removing
-        # components later happens in Settings.
+        # temporary mode, drivers installed but not loaded, or a first run
+        # with nothing set up at all. Partial installs are a valid end
+        # state; adding or removing components later happens in Settings.
         first_run = all(c.status == "off" for c in comps)
-        show_setup = bool(temp) or first_run
+        show_setup = bool(temp) or bool(stale) or first_run
         self.nav_buttons[3].setVisible(show_setup)
         if not show_setup and self.stack.currentIndex() == 3:
             self._navigate(0)
 
-        if temp:
+        if stale:
+            self.banner_label.setText(
+                "Drivers are installed but not loaded, so nothing works "
+                "right now — usually a kernel update. Open Setup and press "
+                "\"Load now\" to fix it."
+            )
+            self.banner.setVisible(self.stack.currentIndex() != 3)
+        elif temp:
             self.banner_label.setText(
                 "Temporary mode. Drivers are active until reboot. "
                 "Install them permanently once you're happy."

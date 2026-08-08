@@ -59,12 +59,8 @@ class ComponentRow(QWidget):
             "permanent": "Permanent",
             "temporary": "Temporary",
             "stale": "Needs loading",
-            "off": "Not loaded",
-        }[self.status]
-        chip_kind = {
-            "permanent": "ok", "temporary": "temp",
-            "stale": "temp", "off": "off",
-        }[self.status]
+        }.get(self.status, "Not loaded")
+        chip_kind = component.chip_kind
         self.chip.setText(text)
         self.chip.setProperty("chip", chip_kind)
         # re-polish so the [chip=...] style refreshes

@@ -204,15 +204,25 @@ class SettingsDialog(QDialog):
             chip = QLabel({
                 "permanent": "Permanent",
                 "temporary": "Temporary",
-                "off": "Not installed",
-            }[component.status])
+                "stale": "Needs loading",
+            }.get(component.status, "Not installed"))
             chip.setProperty("class", "chip")
-            chip.setProperty("chip", {
-                "permanent": "ok", "temporary": "temp", "off": "off",
-            }[component.status])
+            chip.setProperty("chip", component.chip_kind)
             row_layout.addWidget(chip)
 
-            if component.status == "off":
+            if component.status == "stale":
+                # Installed, but absent from the running kernel (usually a
+                # kernel update that rebuilt it after boot): it only needs
+                # loading, not reinstalling.
+                load = QPushButton("Load now")
+                load.setProperty("class", "primary")
+                load.clicked.connect(
+                    lambda _=False, k=component.key:
+                    self._run(hw.load_installed_command([k]))
+                )
+                load.setEnabled(not busy)
+                row_layout.addWidget(load)
+            elif component.status == "off":
                 install = QPushButton("Install")
                 install.setProperty("class", "primary")
                 install.clicked.connect(
