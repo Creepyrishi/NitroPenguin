@@ -94,6 +94,13 @@ class Daemon:
             hw.Keyboard.driver_loaded(), hw.Fans.driver_loaded(),
             hw.Battery.driver_loaded(),
         )
+        stale = [c.name for c in hw.components() if c.status == "stale"]
+        if stale:
+            _log.warning(
+                "Installed but missing from this kernel (%s): a kernel "
+                "update likely rebuilt them after boot. Setup page -> "
+                "'Load now', or reboot.", ", ".join(stale),
+            )
         self._open_hotkey()
         self._reapply_keyboard()
         try:
